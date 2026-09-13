@@ -80,6 +80,7 @@ bun run script/build.ts --single --skip-install --skip-embed-web-ui
 - `recall_history` 直读 `opencode.db`（只读），表结构：`session(agent,...)` / `message(session_id,data)` / `part(message_id,data)`；opencode 版本升级可能需微调。
 - 记忆目录/会话库可用环境变量覆盖：`DAILY_COMPANION_MEMORY`、`DAILY_COMPANION_SESSION_DB`。
 - 用户**不要语音播报**（上轮已停用 `termux-tts-speak` 打招呼）。
+- 仓库只保存记忆**模板**（`*.template.md`）；实盘记忆（`USER.md`/`MEMORY.md`/`daily/`/`pending.md`/`dreams.md`）已被 `.gitignore` 排除，**绝不要提交/推送**。
 - `opencode serve` 若被杀，会中断当前会话（测试时别在 4099 上动手）。
 - 手机能力依赖 Termux:API 与 adb 无线调试（会掉线）。
 

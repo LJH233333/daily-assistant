@@ -135,6 +135,11 @@ bun run script/build.ts --single --skip-install --skip-embed-web-ui   # 含 andr
 ✅ 只读其文档/源码作设计参考。
 原因：该仓库指标异常、安装脚本不在仓库内无法核验，**有风险，禁止运行**。
 
+### 坑 7：把实盘记忆提交进仓库
+❌ `git add plugin/memory/USER.md`（含个人数据；仓库已公开，一旦提交即泄露）。
+✅ 仓库只存 `USER.template.md` / `MEMORY.template.md`；实盘 `USER.md`/`MEMORY.md`、`daily/`、`pending.md`、`dreams.md` 已被 `.gitignore` 排除。
+后果：个人记忆泄露到公开仓库。**提交前务必 `git status` 核对。**
+
 ---
 
 ## 5. 文档维护约定

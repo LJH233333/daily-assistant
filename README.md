@@ -79,7 +79,15 @@ daily-assistant/
 ~/daily-assistant/test.sh /tmp/t dream "开始今晚的复盘"
 ```
 
-**手动安装到 OpenCode**：
+**安装到 OpenCode**：
+
+```bash
+./install.sh                 # 装到 ~/.config/opencode（自动备份已存在的配置）
+```
+
+> **记忆文件分层**：仓库里只有 `USER.template.md` / `MEMORY.template.md` **模板**；实盘 `USER.md` / `MEMORY.md`（含个人数据）被 `.gitignore` 排除，**永不入库存/推送**。`install.sh` 仅在实盘文件不存在时用模板生成，不覆盖已有记忆。
+>
+> 手动安装等价于：复制 `agent/ skills/ plugin/` 与配置，再按需从模板生成实盘记忆。
 
 ```bash
 # 1) 装到 OpenCode 配置目录

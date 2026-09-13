@@ -4,7 +4,10 @@ workspace/
 # ===== 依赖 =====
 **/node_modules/
 
-# ===== 运行时记忆数据（含个人隐私，不入库）=====
+# ===== 运行时记忆（实盘，含个人隐私，绝不入库/推送）=====
+# 仓库只保存 *.template.md 模板；实盘文件由 install.sh 生成。
+plugin/memory/USER.md
+plugin/memory/MEMORY.md
 plugin/memory/daily/
 plugin/memory/pending.md
 plugin/memory/dreams.md
@@ -30,3 +33,7 @@ da-test/
 *.db
 *.db-shm
 *.db-wal
+
+# ===== 安装备份 =====
+*.bak
+*.bak.*

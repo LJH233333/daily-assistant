@@ -1,0 +1,32 @@
+# ===== 工作区沙箱（体积大、非交付物）=====
+workspace/
+
+# ===== 依赖 =====
+**/node_modules/
+
+# ===== 运行时记忆数据（含个人隐私，不入库）=====
+plugin/memory/daily/
+plugin/memory/pending.md
+plugin/memory/dreams.md
+plugin/memory/*.tmp
+
+# ===== 隔离测试产物 =====
+**/test-xdg/
+**/test2/
+**/test3/
+da-test/
+
+# ===== 凭据 / 密钥（绝不入库）=====
+**/auth.json
+*.key
+*.keystore
+*.pem
+.env
+.env.*
+
+# ===== 临时文件 =====
+*.tmp
+*.log
+*.db
+*.db-shm
+*.db-wal

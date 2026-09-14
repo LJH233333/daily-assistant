@@ -11,6 +11,7 @@ plugin/memory/MEMORY.md
 plugin/memory/daily/
 plugin/memory/pending.md
 plugin/memory/dreams.md
+plugin/memory/scores.json
 plugin/memory/*.tmp
 
 # ===== 隔离测试产物 =====

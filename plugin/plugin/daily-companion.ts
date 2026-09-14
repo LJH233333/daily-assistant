@@ -45,6 +45,14 @@ function stamp() {
   const d = new Date()
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }
+function dateTag(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+function withDateTag(content: string): string {
+  // 长记忆条目统一盖日期戳（新鲜度/回忆录装订的地基）；已有则不重复盖。
+  if (/^【\d{4}-\d{2}-\d{2}】/.test(content)) return content
+  return `【${dateTag()}】${content}`
+}
 function readEntries(file: string): string[] {
   let raw = ""
   try {
@@ -87,7 +95,13 @@ function findIndex(entries: string[], oldText: string) {
 
 // ----- pending queue: long-term writes need the user's approval -----
 const PENDING = path.join(MEMORY_DIR, "pending.md")
-type PendingItem = { id: string; target: string; content: string }
+const SCORES = path.join(MEMORY_DIR, "scores.json")
+type PendingItem = { id: string; target: string; score: number; content: string }
+function clampScore(s: any): number {
+  const n = typeof s === "number" ? s : parseInt(String(s ?? "3"), 10)
+  if (isNaN(n)) return 3
+  return Math.min(5, Math.max(1, n))
+}
 function readPending(): PendingItem[] {
   const raw = (() => {
     try {
@@ -101,23 +115,32 @@ function readPending(): PendingItem[] {
     const t = line.trim()
     if (!t.startsWith("|")) continue
     const cols = t.split("|").map((x) => x.trim())
-    // | id | target | content |
-    if (cols.length >= 5 && cols[1] !== "id" && cols[1] !== "---") {
-      out.push({ id: cols[1], target: cols[2], content: cols[3] })
+    if (cols[1] === "id" || cols[1] === "---") continue
+    // 新格式 | id | target | score | content |，兼容老格式 | id | target | content |
+    if (cols.length >= 6 && cols[1]) {
+      out.push({ id: cols[1], target: cols[2], score: clampScore(cols[3]), content: cols[4] })
+    } else if (cols.length >= 5 && cols[1]) {
+      out.push({ id: cols[1], target: cols[2], score: 3, content: cols[3] })
     }
   }
   return out
 }
 function writePending(items: PendingItem[]) {
   ensureDir(MEMORY_DIR)
-  const head = "# 待批准写入长期记忆\n\n| id | target | content |\n|---|---|---|\n"
-  fs.writeFileSync(PENDING, head + items.map((i) => `| ${i.id} | ${i.target} | ${i.content} |`).join("\n") + "\n", "utf8")
+  const head = "# 待批准写入长期记忆\n\n| id | target | score | content |\n|---|---|---|---|\n"
+  fs.writeFileSync(PENDING, head + items.map((i) => `| ${i.id} | ${i.target} | ${i.score} | ${i.content} |`).join("\n") + "\n", "utf8")
+}
+// 分数侧车账本：条目 -> {分数,日期}，快照排序/回忆录装订用。用户不可见，批准落袋时记。
+function recordScores(rows: { target: string; content: string; score: number }[]) {
+  ensureDir(MEMORY_DIR)
+  const lines = rows.map((r) => JSON.stringify({ entry: r.content, target: r.target, score: r.score, date: dateTag() }))
+  if (lines.length) fs.appendFileSync(SCORES, lines.join("\n") + "\n", "utf8")
 }
 function nextId(): string {
   return `m${Date.now().toString(36)}`
 }
 
-function mutate(target: string, action: string, content: string, oldText: string): string {
+function mutate(target: string, action: string, content: string, oldText: string, score: any): string {
   const file = fileFor(target)
 
   if (target === "daily") {
@@ -134,15 +157,17 @@ function mutate(target: string, action: string, content: string, oldText: string
   if (bad) return bad
   const items = readPending()
   if (action === "add" || action === "replace") {
+    const s = clampScore(score)
+    if (s < 3) return `这条重要性只有 ${s} 分（3 分以下不进长期），已留在今日流水里，不用再记。`
     const id = nextId()
-    items.push({ id, target, content })
+    items.push({ id, target, score: s, content: withDateTag(content) })
     writePending(items)
-    return `已提交待批准（id=${id}，${target}）：${content}。等用户确认后再正式写入长期档案。`
+    return `已提交待批准（id=${id}，${target}，${s} 分）：${content}。等用户确认后再正式写入长期档案。`
   }
   if (action === "remove") {
     // Removing an existing durable entry still needs approval; encode as a special proposal.
     const id = nextId()
-    items.push({ id, target, content: `__REMOVE__ ${oldText}` })
+    items.push({ id, target, score: 5, content: `__REMOVE__ ${oldText}` })
     writePending(items)
     return `已提交删除待批准（id=${id}，${target}）：${oldText}`
   }
@@ -178,6 +203,7 @@ function applyPending(ids: string[] | "all"): string {
       } else {
         entries.push(it.content)
         writeEntries(file, entries)
+        recordScores([{ target: it.target, content: it.content, score: it.score }])
         results.push(`✓ 已写入 ${it.target}：${it.content}`)
       }
     }
@@ -254,7 +280,7 @@ function memorySnapshot(): string {
   } catch {}
   parts.push(`## 今日流水\n${today || "(空)"}`)
   const pend = readPending()
-  if (pend.length) parts.push(`## 待批准（${pend.length}）\n${pend.map((p) => `${p.id} [${p.target}] ${p.content}`).join("\n")}`)
+  if (pend.length) parts.push(`## 待批准（${pend.length}）\n${pend.map((p) => `${p.id} [${p.target}] ${p.score}分 ${p.content}`).join("\n")}`)
   return parts.join("\n\n")
 }
 
@@ -296,19 +322,20 @@ export default async function DailyCompanion() {
     tool: {
       memory: tool({
         description:
-          "管理记忆。target=daily 立即写入当天流水；target=user/memory 是长期档案，会先进入待批准队列，等用户确认。action=add/replace/remove，replace/remove 用 old_text 子串定位。",
+          "管理记忆。target=daily 立即写入当天流水；target=user/memory 是长期档案，会先进入待批准队列，等用户确认。action=add/replace/remove，replace/remove 用 old_text 子串定位。score 给 1~5 的重要性分（默认 3，3 分以下不进长期，只留流水）。",
         args: {
           action: z.enum(["add", "replace", "remove"]),
           target: z.enum(["user", "memory", "daily"]),
           content: z.string().optional(),
           old_text: z.string().optional(),
+          score: z.number().optional().describe("1~5 重要性分"),
         },
         async execute(args) {
           const content = (args.content ?? "").trim()
           const oldText = (args.old_text ?? "").trim()
           if ((args.action === "add" || args.action === "replace") && !content) return "content 不能为空。"
           if ((args.action === "replace" || args.action === "remove") && !oldText) return "old_text 不能为空。"
-          return mutate(args.target, args.action, content, oldText)
+          return mutate(args.target, args.action, content, oldText, args.score)
         },
       }),
 
@@ -323,7 +350,7 @@ export default async function DailyCompanion() {
           if (args.action === "list") {
             const items = readPending()
             if (!items.length) return "没有待批准条目。"
-            return items.map((i) => `${i.id} [${i.target}] ${i.content}`).join("\n")
+            return items.map((i) => `${i.id} [${i.target}] ${i.score}分 ${i.content}`).join("\n")
           }
           const raw = (args.ids ?? "all").trim()
           const ids: string[] | "all" =

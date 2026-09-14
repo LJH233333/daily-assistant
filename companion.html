@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>陪伴助手 · 测试页</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; margin: 0; background: #f2f2f2; font-size: 18px; }
+  header { background: #2e7d32; color: #fff; padding: 12px 16px; font-size: 20px; }
+  .box { background: #fff; margin: 10px; padding: 12px; border-radius: 10px; }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  label { font-size: 15px; color: #555; }
+  input, textarea, select { font-size: 17px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; width: 100%; }
+  button { font-size: 18px; padding: 12px 18px; border: none; border-radius: 10px; background: #2e7d32; color: #fff; }
+  button:active { opacity: .7; }
+  button.ghost { background: #757575; }
+  button.quick { background: #1565c0; }
+  #chat { min-height: 220px; max-height: 55vh; overflow-y: auto; }
+  .msg { margin: 8px 0; padding: 10px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
+  .me { background: #dcf2dc; text-align: right; }
+  .ai { background: #fff; border: 1px solid #ddd; }
+  .sys { background: #fff3cd; color: #665; font-size: 15px; }
+  #status { font-size: 15px; color: #555; min-height: 22px; }
+</style>
+</head>
+<body>
+<header>陪伴助手 · 测试页</header>
+
+<div class="box">
+  <label>服务地址（一般不用改）</label>
+  <input id="base" value="http://127.0.0.1:4123">
+  <div class="row">
+    <button id="btnConn" class="ghost">点我检查连接</button>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div class="box">
+  <label>长记忆管理员 · 模型已锁死：mimo-v2.5（小米）</label>
+  <input id="mimoKey" type="password" placeholder="在这里粘贴小米 API 钥匙（sk-开头）" autocomplete="off">
+  <div class="row">
+    <button id="btnMimo" class="quick">测试钥匙</button>
+  </div>
+  <div id="mimoStatus" style="font-size:15px;color:#555;min-height:22px;"></div>
+  <label style="font-size:13px;"><input id="mimoRemember" type="checkbox" style="width:auto;"> 在这台手机上记住钥匙（只存本机浏览器）</label>
+  <div style="font-size:13px;color:#888;">钥匙只发给小米接口，别处不去；页面刷新后输入框会自动清空（除非勾了记住）。</div>
+</div>
+
+<div class="box">
+  <div class="row">
+    <button id="btnNew">＋ 新对话</button>
+    <button id="btnRefresh" class="ghost">刷新列表</button>
+  </div>
+  <div class="row">
+    <select id="sessions"></select>
+  </div>
+</div>
+
+<div class="box">
+  <div class="row">
+    <button class="quick" data-q="你好，随便聊两句">打招呼</button>
+    <button class="quick" data-q="看看我手机状态，报一下电量和内存">查手机状态</button>
+    <button class="quick" data-q="开始今晚的复盘">今晚复盘</button>
+  </div>
+</div>
+
+<div class="box" id="chat"></div>
+
+<div class="box">
+  <textarea id="input" rows="3" placeholder="在这里打字…"></textarea>
+  <div class="row">
+    <button id="btnSend">发送</button>
+  </div>
+</div>
+
+<script>
+var DIR = "/data/data/com.termux/files/home/.cache/opencode/tmp/da-web/chat";
+var sessionId = null;
+var polling = false;
+
+function base() { return document.getElementById("base").value.replace(/\/+$/, ""); }
+function setStatus(t) { document.getElementById("status").textContent = t; }
+function addMsg(cls, text) {
+  var d = document.createElement("div");
+  d.className = "msg " + cls;
+  d.textContent = text;
+  var chat = document.getElementById("chat");
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+}
+function asArray(j) { return Array.isArray(j) ? j : (j && j.data ? j.data : []); }
+
+function api(path, method, body) {
+  var url = base() + path + (path.indexOf("?") >= 0 ? "&" : "?") + "directory=" + encodeURIComponent(DIR);
+  var opt = { method: method || "GET", headers: { "Content-Type": "application/json" } };
+  if (body) opt.body = JSON.stringify(body);
+  return fetch(url, opt).then(function (r) {
+    if (!r.ok) throw new Error("服务返回 " + r.status);
+    if (r.status === 204) return null;
+    return r.json();
+  });
+}
+
+document.getElementById("btnConn").onclick = function () {
+  setStatus("正在检查…");
+  fetch(base() + "/agent").then(function (r) { return r.json(); }).then(function (j) {
+    var names = asArray(j).map(function (a) { return a.name; });
+    if (names.indexOf("companion") >= 0) setStatus("连接正常，陪伴助手在。");
+    else setStatus("连上了，但没找到陪伴助手（已有角色：" + names.join("、") + "）。");
+  }).catch(function () { setStatus("连不上，先确认测试服务开着。"); });
+};
+
+function loadSessions() {
+  api("/session?limit=20").then(function (j) {
+    var list = asArray(j);
+    var sel = document.getElementById("sessions");
+    sel.innerHTML = "";
+    list.forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s.id;
+      o.textContent = (s.title || "未命名") + "（" + s.id.slice(-4) + "）";
+      sel.appendChild(o);
+    });
+    if (list.length && !sessionId) { sessionId = list[0].id; sel.value = sessionId; loadHistory(); }
+  }).catch(function (e) { setStatus("读会话列表失败：" + e.message); });
+}
+
+document.getElementById("btnRefresh").onclick = function () { loadSessions(); loadHistory(); };
+document.getElementById("sessions").onchange = function (e) {
+  sessionId = e.target.value;
+  document.getElementById("chat").innerHTML = "";
+  loadHistory();
+};
+
+document.getElementById("btnNew").onclick = function () {
+  api("/session", "POST", { title: "手机网页聊天", agent: "companion" }).then(function (j) {
+    var s = j && j.data ? j.data : j;
+    sessionId = s.id;
+    document.getElementById("chat").innerHTML = "";
+    addMsg("sys", "新对话开始，说点啥吧。");
+    loadSessions();
+  }).catch(function (e) { setStatus("新建失败：" + e.message); });
+};
+
+function textOf(msg) {
+  var out = [];
+  (msg.parts || []).forEach(function (p) {
+    if (p.type === "text" && p.text) out.push(p.text);
+  });
+  return out.join("\n");
+}
+
+function loadHistory() {
+  if (!sessionId) return;
+  api("/session/" + sessionId + "/message").then(function (j) {
+    var msgs = asArray(j);
+    document.getElementById("chat").innerHTML = "";
+    msgs.forEach(function (m) {
+      var t = textOf(m);
+      if (!t) return;
+      addMsg(m.info && m.info.role === "user" ? "me" : "ai", t);
+    });
+  }).catch(function () {});
+}
+
+function sendText(text) {
+  if (!text) return;
+  if (polling) { setStatus("上一句还没回完，稍等几秒。"); return; }
+  var ensure = sessionId ? Promise.resolve() :
+    api("/session", "POST", { title: "手机网页聊天", agent: "companion" }).then(function (j) {
+      var s = j && j.data ? j.data : j;
+      sessionId = s.id;
+loadSessions();
+setInterval(function () { if (!polling && sessionId) loadHistory(); }, 20000);
+    });
+  ensure.then(function () {
+    addMsg("me", text);
+    document.getElementById("input").value = "";
+    setStatus("助手正在想…");
+    polling = true;
+    return api("/session/" + sessionId + "/prompt_async", "POST",
+      { agent: "companion", parts: [{ type: "text", text: text }] });
+  }).then(function () { poll(0, "", 0); })
+  .catch(function (e) { polling = false; setStatus("发送失败：" + e.message); });
+}
+
+function snapshot() {
+  return api("/session/" + sessionId + "/message").then(function (j) {
+    var msgs = asArray(j);
+    var texts = [];
+    msgs.forEach(function (m) {
+      var t = textOf(m);
+      if (t) texts.push((m.info && m.info.role === "user" ? "我：" : "它：") + t);
+    });
+    return { count: msgs.length, text: texts.join("\n---\n") };
+  });
+}
+
+function poll(n, lastText, sameTimes) {
+  if (n > 45) { polling = false; setStatus("等太久了，点刷新列表看看。"); loadHistory(); return; }
+  setTimeout(function () {
+    snapshot().then(function (s) {
+      if (s.text !== lastText) { poll(n + 1, s.text, 0); return; }
+      var lastIsAi = s.text.lastIndexOf("它：") > s.text.lastIndexOf("我：");
+      if (lastIsAi && sameTimes >= 1) {
+        polling = false; setStatus(""); loadHistory(); return;
+      }
+      poll(n + 1, s.text, sameTimes + 1);
+    }).catch(function () { poll(n + 1, lastText, sameTimes); });
+  }, 2000);
+}
+
+document.getElementById("btnSend").onclick = function () {
+  sendText(document.getElementById("input").value.trim());
+};
+document.querySelectorAll("button.quick").forEach(function (b) {
+  if (!b.getAttribute("data-q")) return;
+  b.onclick = function () { sendText(b.getAttribute("data-q")); };
+});
+
+/* 长记忆管理员：身份固定，只管长记忆文档，不管陪聊 */
+var MIMO_MODEL = "mimo-v2.5";
+var MIMO_URL = "https://api.xiaomimimo.com/v1/chat/completions";
+var MANAGER_SYSTEM = "你是长记忆管理员，不是陪聊助手。只负责管理长记忆文档：用户档案、长期事实、回忆录、分数账本。你的工具只有读、评分、归档、整理四样，不回答生活问题，不闲聊。有人让你干职责之外的事，一律拒绝并说明你是管理员。";
+function mimoStatus(t) { document.getElementById("mimoStatus").textContent = t; }
+try {
+  var saved = localStorage.getItem("mimo_key") || "";
+  if (saved) { document.getElementById("mimoKey").value = saved; document.getElementById("mimoRemember").checked = true; }
+} catch (e) {}
+document.getElementById("btnMimo").onclick = function () {
+  var key = document.getElementById("mimoKey").value.trim();
+  if (!key) { mimoStatus("先粘贴钥匙再点测试。"); return; }
+  mimoStatus("正在问管理员在不在…");
+  fetch(MIMO_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+    body: JSON.stringify({
+      model: MIMO_MODEL,
+      messages: [
+        { role: "system", content: MANAGER_SYSTEM },
+        { role: "user", content: "听到请回“在岗”二字，再用一句话说明你的职责。" }
+      ],
+      max_tokens: 200,
+      thinking: { type: "disabled" }
+    })
+  }).then(function (r) {
+    if (r.status === 401 || r.status === 403) throw new Error("钥匙不对（无权）");
+    if (!r.ok) throw new Error("小米那边返回 " + r.status);
+    return r.json();
+  }).then(function (j) {
+    var text = (((j.choices || [])[0] || {}).message || {}).content || "";
+    if (!text.trim()) throw new Error("有回音但没说话");
+    if (document.getElementById("mimoRemember").checked) {
+      try { localStorage.setItem("mimo_key", key); } catch (e) {}
+    } else {
+      try { localStorage.removeItem("mimo_key"); } catch (e) {}
+    }
+    mimoStatus("钥匙可用，管理员在线。它说：" + text.trim().slice(0, 120));
+  }).catch(function (e) {
+    mimoStatus("没连上：" + e.message + "。检查钥匙和网络再试。");
+  });
+};
+
+loadSessions();
+</script>
+</body>
+</html>

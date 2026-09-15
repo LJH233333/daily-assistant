@@ -5,12 +5,12 @@ workspace/
 **/node_modules/
 
 # ===== 运行时记忆（实盘，含个人隐私，绝不入库/推送）=====
-# 仓库只保存 *.template.md 模板；实盘文件由 install.sh 生成。
+plugin/memory/dreams.md
+# 旧记忆机制已弃用（DC-20 由引擎接管）；规则保留，防止旧文件被误提交。
 plugin/memory/USER.md
 plugin/memory/MEMORY.md
 plugin/memory/daily/
 plugin/memory/pending.md
-plugin/memory/dreams.md
 plugin/memory/scores.json
 plugin/memory/*.tmp
 

@@ -18,8 +18,8 @@ daily-assistant/
 │   ├── opencode.jsonc         # 配置：默认角色、模型、技能、记忆注入
 │   ├── agent/                 # 四个角色：companion / monitor / scheduler / dream
 │   ├── skills/phone-hands/    # 手机能力技能（电量/截图/操作/通知）
-│   ├── memory/                # SOUL / USER / MEMORY / daily（记忆数据）
-│   ├── plugin/daily-companion.ts  # 插件代码（记忆工具 + 手机工具 + 历史检索）
+│   ├── memory/                # SOUL（人设）；记忆数据由后台引擎负责（DC-20）
+│   ├── plugin/daily-companion.ts  # 插件代码（手机状态 + 梦境日记）
 │   └── README.md              # 插件包详细说明
 └── workspace/             # 构建/实验沙箱（非交付物）
     ├── opencode-src/          # OpenCode 源码（含 Bun 构建环境，约 2.1G）
@@ -34,22 +34,27 @@ daily-assistant/
 3. 定时唤醒、主动关心。
 4. 最终并入用户的安卓 App（`OConnector-Pro`），随 App 开关。
 
-## 当前方案（融合 Hermes 与 OpenClaw 两套记忆哲学）
+## 当前方案：长记忆交给记忆引擎（DC-20）
 
-- **Hermes 路线**：小档案常驻 + 大历史可搜 + AI 自管。
-- **OpenClaw 路线**：夜间复盘、门槛化晋升、可审计。
+记忆的"存、整理、取"由一套后台引擎（腾讯 TencentDB Agent Memory 轻量版）负责；助手侧的模型请求经代理绕行，自动完成：
 
-落地为三层记忆：
+1. **自动存**：每轮对话自动入库（原文 L0），无需模型开口。
+2. **自动整理**：引擎定期把原文提炼成碎片记忆（L1）、场景（L2）、人物画像（L3）。
+3. **自动取**：
+   - 画像与场景索引每轮自动注入助手上下文（与提示缓存解耦）；
+   - 具体细节由助手按需检索（引擎向系统提示注入 `<tdai_memory_tools>` 说明，助手用 bash+curl 调只读接口）。
 
-1. **长期档案**（会话开始注入，与缓存无关）
-   - `memory/USER.md`（上限 1375 字）
-   - `memory/MEMORY.md`（上限 2200 字）
-   - 写满报错、逼 AI 当场整理；自动去重；敏感内容扫描。
-   - **长期写入需用户批准**（进 `pending.md` 待批准队列）。
-2. **每日流水**（`memory/daily/YYYY-MM-DD.md`，立即写）。
-3. **历史检索**（`recall_history`，只搜手机端陪伴会话，不碰电脑端）。
+> 旧的自研记忆机制（USER/MEMORY 文件、待批准队列、历史检索工具）**已于 2026-09-15 弃用拆除**（DC-20）。
 
-外加 **`dream` 深夜复盘角色**：读流水 → 提炼长期候选提交待批准 → 写 `dreams.md` 梦境日记。
+外加 **`dream` 深夜复盘角色**：翻看近期对话 → 写 `dreams.md` 梦境日记。
+
+### 助手侧怎么接引擎
+
+- `plugin/opencode.jsonc` 里注册了一个自定义 provider（`tdai`，指向本机代理 `127.0.0.1:8096`）；
+  **钥匙不进配置**，用 `{file:~/.local/share/opencode/tdai-user-key}` 从本机文件读。
+- 只有 `companion` 角色通过它走模型（见 `agent/companion.md` 的 `model:`），
+  全局默认模型保持不变——**避免代理没起时影响其他 OpenCode 使用**。
+- 代理随请求自动完成：存对话、注入画像、暴露只读记忆工具（助手用 bash+curl 调）。
 
 ## 四个角色
 
@@ -64,12 +69,10 @@ daily-assistant/
 
 | 工具 | 作用 |
 |---|---|
-| `memory` | 增/改/删；daily 立即写，user/memory 走待批准 |
-| `memory_review` | 列出/批准/丢弃待批准条目 |
-| `recall` | 记忆快照 |
-| `recall_history` | 搜手机端陪伴会话的历史原话 |
 | `phone_status` | 电量/温度/内存/运行时长 |
 | `dream_diary` | 写梦境日记 |
+
+> 记忆不靠插件工具：由引擎注入 `<tdai_memory_tools>` 说明，助手用 bash+curl 调只读接口（代理自动带身份）。
 
 ## 安装与测试（在隔离环境，勿污染主实例）
 
@@ -87,9 +90,7 @@ daily-assistant/
 ./install.sh                 # 装到 ~/.config/opencode（自动备份已存在的配置）
 ```
 
-> **记忆文件分层**：仓库里只有 `USER.template.md` / `MEMORY.template.md` **模板**；实盘 `USER.md` / `MEMORY.md`（含个人数据）被 `.gitignore` 排除，**永不入库存/推送**。`install.sh` 仅在实盘文件不存在时用模板生成，不覆盖已有记忆。
->
-> 手动安装等价于：复制 `agent/ skills/ plugin/` 与配置，再按需从模板生成实盘记忆。
+> **记忆数据不在仓库**：实盘记忆（引擎数据在 `~/.cache` 沙箱）与 `dreams.md` 由 `.gitignore` 排除，**永不入库/推送**；仓库只含人设 `SOUL.md`。
 
 ```bash
 # 1) 装到 OpenCode 配置目录
@@ -109,7 +110,8 @@ opencode run --agent dream "开始今晚的复盘"
 
 ## 当前状态
 
-- 插件后端：**已跑通并测试**（记忆增删改/上限/待批准/历史检索/梦境复盘全部实测通过）。
+- 插件后端：**已跑通并测试**（手机状态、梦境复盘、网页测试页均实测通过）。
+- 记忆引擎（DC-20）：**已与助手端到端跑通**，收尾中（见 `优化清单.md` DC-20）。
 - 安卓 App 集成：**未开始**（等用户安排）。
 - 夜间定时触发：**未接**（手机上用 Termux cron，App 内用 App 定时器）。
 

@@ -23,7 +23,7 @@ permission:
 
 - 推送：`termux-notification --title "标题" --content "内容"`
 - 说话（可选）：`termux-tts-speak "内容"`
-- 读记忆：`~/.config/opencode/memory/` 下的 USER.md、MEMORY.md 和当天的 daily 文件，让问候带上上下文，不做模板复读。
+- 查记忆：画像会自动出现在你的上下文里；需要细节（最近聊过什么、他最近在意什么）时，按系统提示里 `<tdai_memory_tools>` 的说明用 bash+curl 查，让问候带上上下文，不做模板复读。
 
 ## 说话方式
 
@@ -33,5 +33,5 @@ permission:
 
 ## 边界
 
-- 只读记忆 + 发送通知，不改其他任何东西。
+- 只查记忆 + 发送通知，不改其他任何东西。
 - 触发但无话可说时，允许什么都不发，保持安静。

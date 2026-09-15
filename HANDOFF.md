@@ -5,6 +5,7 @@
 ## 一句话状态
 
 插件后端**已跑通并实测**；**App 集成未开始**；夜间定时未接。
+新记忆引擎（腾讯 TencentDB Agent Memory，DC-20）**已与助手端到端跑通**，处在"验证通过、待收尾"阶段。
 
 ---
 
@@ -48,6 +49,12 @@ bun run script/build.ts --single --skip-install --skip-embed-web-ui
 - 任何实验**必须同时**设 `XDG_CONFIG_HOME` 与 `XDG_DATA_HOME`。
 - 用户明确要求：**不得改造/污染正在运行的那套 OpenCode**。
 
+### 手机网页测试（聊天 + 记忆库）
+
+- 网址：`http://127.0.0.1:4130/companion.html`（起法：`~/.cache/opencode/tmp/da-web/serve-companion.sh`）
+- 它连两个后端：聊天 `127.0.0.1:4123`（隔离测试服务，起法见 DC-15）、记忆库 `127.0.0.1:8420`（记忆引擎）。
+- 三个一起才完整；缺哪个，页面相应部分就是空的/连不上。
+
 ---
 
 ## 三、四个角色与工具
@@ -59,7 +66,8 @@ bun run script/build.ts --single --skip-install --skip-embed-web-ui
 | scheduler | `… --agent scheduler "…"` | 定时唤醒（发通知） |
 | dream | `… --agent dream "开始今晚的复盘"` | 深夜复盘 |
 
-工具（插件内）：`memory`（增/改/删，daily 即写、长期待批准）、`memory_review`（批准/丢弃）、`recall`、`recall_history`（仅陪伴会话）、`phone_status`、`dream_diary`。
+工具（插件内）：`phone_status`（手机状态）、`dream_diary`（梦境日记）。
+记忆不在插件里：由记忆引擎（DC-20）自动存、自动注入画像，细节检索走引擎注入的 `<tdai_memory_tools>`（bash+curl）。
 
 ---
 
@@ -70,17 +78,18 @@ bun run script/build.ts --single --skip-install --skip-embed-web-ui
 3. **检索范围**：只搜**手机端陪伴会话**，不碰电脑端与编程会话。
 4. **字数上限**：USER 1375 / MEMORY 2200（对齐 Hermes）。
 5. **App 路线**：用户先前选 B（嵌终端 + 完整环境），后改为"先只做插件后端"；App 集成待用户重启该议题。
+6. **记忆换引擎（2026-09-15）**：旧自研记忆（文件 + 待批准 + 历史检索）弃用拆除；改由腾讯 TencentDB Agent Memory 轻量版接管（自动存、自动整理、画像自动注入、细节工具检索）。详见 `优化清单.md` DC-20。
 
 ---
 
 ## 五、已知坑 / 注意
 
-- 插件记忆目录**跟随 `XDG_CONFIG_HOME`**（早期写死全局的 bug 已修）。
+- 插件记忆目录**跟随 `XDG_CONFIG_HOME`**（早期写死全局的 bug 已修）；现在只用于 `dreams.md`。
 - `dream` 角色 `edit: deny`，写日记必须用 `dream_diary` 工具，不能写文件。
-- `recall_history` 直读 `opencode.db`（只读），表结构：`session(agent,...)` / `message(session_id,data)` / `part(message_id,data)`；opencode 版本升级可能需微调。
-- 记忆目录/会话库可用环境变量覆盖：`DAILY_COMPANION_MEMORY`、`DAILY_COMPANION_SESSION_DB`。
+- ~~`recall_history` 直读 `opencode.db`~~ 已弃用（DC-20 改用引擎的 `conversation/search`）。
+- 记忆目录可用环境变量覆盖：`DAILY_COMPANION_MEMORY`（`DAILY_COMPANION_SESSION_DB` 已随旧机制弃用）。
 - 用户**不要语音播报**（上轮已停用 `termux-tts-speak` 打招呼）。
-- 仓库只保存记忆**模板**（`*.template.md`）；实盘记忆（`USER.md`/`MEMORY.md`/`daily/`/`pending.md`/`dreams.md`）已被 `.gitignore` 排除，**绝不要提交/推送**。
+- 记忆已换引擎（DC-20）：仓库只含人设 `SOUL.md`；实盘记忆在沙箱 `~/.cache`，`dreams.md` 被 `.gitignore` 排除，**绝不要提交/推送**。
 - `opencode serve` 若被杀，会中断当前会话（测试时别在 4099 上动手）。
 - 手机能力依赖 Termux:API 与 adb 无线调试（会掉线）。
 
@@ -109,6 +118,9 @@ bun run script/build.ts --single --skip-install --skip-embed-web-ui
 - DC-10 晋升评分门槛（OpenClaw 式，未做）
 - DC-11 向量检索（评估后暂不采用）
 - DC-12 手机能力原生化（未开始）
+- DC-20 记忆引擎融合（🔄 端到端已通，收尾中：启停脚本、补丁记录、清假数据、拆旧机制、开机自启）
+  - 三服务（本项目自己的，别当用户的 4099 处理）：引擎 8420 / 代理 8096 / 小转发 8799
+  - 运维备忘（ID、起停、配置、密钥位置）：`~/.cache/opencode/tmp/tdai/NOTES.md`（本机专用，勿入库）
 
 ## 九、其他遗留
 

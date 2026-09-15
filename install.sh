@@ -6,8 +6,7 @@
 #   OPENCODE_CONFIG_DIR=/path ./install.sh
 #
 # 规则：
-#   - 只复制 agent / skills / plugin，以及记忆"模板"
-#   - 实盘记忆文件（USER.md / MEMORY.md）不存在时才用模板生成，**不覆盖已有记忆**
+#   - 只复制 agent / skills / plugin / memory（记忆由后台引擎负责，这里只有 SOUL 人设）
 #   - opencode.jsonc 已存在时**不覆盖**，先备份并提示手动合并
 set -euo pipefail
 
@@ -23,10 +22,6 @@ for d in agent skills plugin memory; do
   mkdir -p "$DEST/$d"
   cp -r "$SRC/$d/." "$DEST/$d/"
 done
-
-# 实盘记忆：仅在不存在时用模板生成
-[ -f "$DEST/memory/USER.md" ]   || cp "$SRC/memory/USER.template.md"   "$DEST/memory/USER.md"
-[ -f "$DEST/memory/MEMORY.md" ] || cp "$SRC/memory/MEMORY.template.md" "$DEST/memory/MEMORY.md"
 
 # 配置：存在则不覆盖，先备份
 if [ -f "$DEST/opencode.jsonc" ]; then

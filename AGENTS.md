@@ -85,7 +85,7 @@
 ├── .gitignore              # 排除实盘记忆/凭据/沙箱/DB
 ├── plugin/                 # ★ 交付物（含 *.template.md 模板）
 │   ├── opencode.jsonc / agent/ / skills/ / memory/ / plugin/
-└── workspace/              # 沙箱：opencode-src（源码+Bun）、termux-app（已暂缓）
+└── workspace/              # 沙箱：opencode-src（源码+Bun）、tdai-memory（记忆引擎，1.2G）、termux-app（已暂缓）
 ```
 （opencode 二进制与全局配置位置见全局 §2。）
 
@@ -128,6 +128,23 @@ git log -p --all | grep -Ei "sk-[a-z0-9]{10}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Z
 - 记忆条目格式：**一行一条**，忽略空行与 `#` 开头行。
 - 会话检索范围：**只搜** `session.agent IN (companion, monitor, scheduler, dream)`。
 - 记忆目录跟随 `XDG_CONFIG_HOME`，允许 `DAILY_COMPANION_MEMORY` 覆盖。
+
+### 3.6 记忆引擎（DC-20，沙箱服务）
+
+- 三服务（都是**本项目自己的**，仅监听本机，不是用户的 4099）：
+  引擎 `8420` / 代理 `8096` / 小转发 `8799`（给 opencode-go 补会话头）；
+  统一启停：`~/.cache/opencode/tmp/tdai/tdai-ctl.sh start|stop|restart|status`。
+- 引擎源码与依赖在 `workspace/tdai-memory`（腾讯 TencentDB Agent Memory 轻量版）；
+  运维细节（身份 ID、起停命令、配置、密钥位置、排查、清库）在
+  `~/.cache/opencode/tmp/tdai/NOTES.md`（**本机专用，不进仓库**）。
+- **助手怎么接的**：`plugin/opencode.jsonc` 注册 `tdai` provider（指向 8096，钥匙用
+  `{file:~/.local/share/opencode/tdai-user-key}`）；**只有 `companion` 角色**通过它走模型
+  （`agent/companion.md` 的 `model:`），全局默认模型不动（防代理没起时影响其他使用）。
+- 助手侧只读记忆工具走 `<代理>/memory-bridge/v3/*`（Bash+curl，代理自动注入身份，无需钥匙）；
+  注入依赖请求带会话头（OpenCode 自带，实测无需额外配置）。
+- 网页测试页入口：本机小服务 `http://127.0.0.1:4130/companion.html`
+  （起法 `~/.cache/opencode/tmp/da-web/serve-companion.sh`，会先把页面同步到小站点目录）。
+- `tdai-gateway.yaml` 的 pipeline 节奏是**为快测调快的**，正式用前恢复默认。
 
 ---
 
@@ -189,6 +206,38 @@ git log -p --all | grep -Ei "sk-[a-z0-9]{10}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Z
 ❌ 命令本身几秒能跑完（如 `ps`），但服务端显示 running 转几分钟不出结果（已踩 3 次：`cat`/`glob`/`ps` 各一次）。
 ✅ 先 `abort` 掐掉那句，再 `kill <4123pid>` 重启测试服务（先 `ps` 确认 pid，绝不用 `pkill -f`），一般就好。
 后果：测试页一直显示"正在想"，用户干等。
+
+### 坑 13：后台服务随工具会话一起被杀
+❌ `nohup cmd > log 2>&1 &`——命令跑完一会儿服务就没了（会话超时把子进程一起带走）。
+✅ `setsid bash -c '<命令>' < /dev/null > /dev/null 2>&1 & disown`。
+后果：以为服务在跑，实际早死了，白排查半天。
+
+### 坑 14：装带原生模块的 npm 依赖（Termux 特有）
+❌ `better-sqlite3` 在 Termux 无预编译、编不过；`--omit=optional` 会漏掉 esbuild 的平台二进制（`@esbuild/android-arm64`）；`--omit=dev` 装不上 `tsx`（它是 devDependency）。
+✅ 能不用原生模块就不用（如存储后端改 `fs`）；漏装时 `npm install --no-save <包>` 单独补。
+后果：服务起不来，报错还看不出根因。
+
+### 坑 15：拿错接口的返回给链路下结论
+❌ 查 `conversation/count` 没涨 → 断定"没写库"，实际数据在 `conversations/*.jsonl` 里，白查半天。
+✅ 判断"写没写"看**引擎日志**的 `[checkpoint] markL1ExtractionComplete` / `L1 complete`；
+查询类接口先核对文档（`v3-api-memorycore-doc.md`）的字段与 scope。
+后果：结论反了，差点把好链路当坏的拆。
+
+### 坑 16：腾讯记忆引擎直接跑会撞三个环境假设
+❌ ① 代理硬校验 Node `v22.x`（本机 26 直接拒启）；② 网关 CORS 允许头写死不认 `x-tdai-service-id`；③ 注入要求请求带会话头（`x-session-id`/`x-conversation-id`），缺了 `conversationId=null` → **静默跳过**，日志只字不提。
+✅ ① 沙箱补丁放开到 `>=22`；② CORS 补一行；③ 客户端带齐会话头 + 身份四元组（team/user/agent/session）。
+后果：注入、写库全都不报错但全都不干活；排查看 `proxy.log` 的 `[injection-debug]`（`injectedSkipped`、`conversationId`）。
+> 升级腾讯源码时这些补丁会丢，需重打（共 3 处，记录见 `优化清单.md` DC-20 与沙箱备忘）。
+
+### 坑 17：给浏览器加请求头 = 改服务端白名单
+❌ 前端加了新请求头（如 `x-tdai-team-id`），浏览器预检要服务端**逐个放行**，少一个请求就被拦（面板空白）。
+✅ 能被浏览器预检限制的字段，改走**请求体**传递（如记忆库把 team/agent/user 塞进 body），不必动服务端。
+后果：页面报跨域错、数据全是空的（已踩，已修）。
+
+### 坑 18：记忆库查询少一个身份字段会"静默返回 0 条"
+❌ `/v3/*` 查询只带 team/agent，漏掉 user → 不报错，但按默认占位身份过滤，结果恒为 0 条。
+✅ 三个身份（team/agent/user）必须带齐（头 `x-tdai-team-id` 等或请求体 `team_id` 等）。
+后果：以为"没数据/没记住"，实际数据都在库里（已踩，已修）。
 
 ---
 

@@ -2,7 +2,26 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "opencode-go/deepseek-v4.1-flash",
   "default_agent": "companion",
+  "provider": {
+    "tdai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "记忆代理",
+      "options": {
+        "baseURL": "http://127.0.0.1:8096/opencode/default/v1",
+        "apiKey": "{file:~/.local/share/opencode/tdai-user-key}",
+        "headers": {
+          "x-team-id": "team-okffq0no3b",
+          "x-agent-id": "agt-okf6hzu2e1"
+        }
+      },
+      "models": {
+        "deepseek-v4.1-flash": {
+          "name": "deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
   "plugin": ["./plugin/daily-companion.ts"],
   "skills": { "paths": ["./skills"] },
-  "instructions": ["./memory/SOUL.md", "./memory/USER.md", "./memory/MEMORY.md"]
+  "instructions": ["./memory/SOUL.md"]
 }

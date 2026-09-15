@@ -22,6 +22,27 @@
   .ai { background: #fff; border: 1px solid #ddd; }
   .sys { background: #fff3cd; color: #665; font-size: 15px; }
   #status { font-size: 15px; color: #555; min-height: 22px; }
+
+  /* ===== 记忆库 ===== */
+  .overlay { position: fixed; inset: 0; background: #f2f2f2; z-index: 99; display: flex; flex-direction: column; }
+  .overlay-head { background: #2e7d32; color: #fff; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 19px; }
+  .mem-tabs { display: flex; gap: 6px; padding: 8px 10px; background: #e8e8e8; }
+  .mem-tab { flex: 1; background: #fff; color: #333; border: 1px solid #ccc; padding: 8px 2px; font-size: 15px; border-radius: 8px; }
+  .mem-tab.active { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+  .mem-body { flex: 1; overflow-y: auto; padding: 12px; }
+  .mem-status { padding: 8px 14px; font-size: 13px; color: #666; border-top: 1px solid #ddd; background: #fff; min-height: 20px; }
+  .card { border: 1px solid #e0e0e0; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #fff; font-size: 16px; white-space: pre-wrap; word-break: break-word; }
+  .card.tap { cursor: pointer; }
+  .card.tap:active { background: #eef6ee; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #ddd; color: #333; margin-right: 6px; }
+  .badge.persona { background: #e3f2fd; color: #1565c0; }
+  .badge.episodic { background: #fff3e0; color: #e65100; }
+  .badge.instruction { background: #f3e5f5; color: #6a1b9a; }
+  .mem-meta { font-size: 12px; color: #999; margin-top: 6px; }
+  .mem-hint { font-size: 14px; color: #777; padding: 4px 2px 10px; }
+  .mem-filter { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .mem-filter button { font-size: 14px; padding: 6px 12px; background: #fff; color: #333; border: 1px solid #bbb; border-radius: 999px; }
+  .mem-filter button.on { background: #1565c0; color: #fff; border-color: #1565c0; }
 </style>
 </head>
 <body>
@@ -34,6 +55,13 @@
     <button id="btnConn" class="ghost">点我检查连接</button>
   </div>
   <div id="status"></div>
+</div>
+
+<div class="box">
+  <div class="row">
+    <button id="btnMem" class="quick">记忆库</button>
+    <span style="font-size:13px;color:#888;align-self:center;">看看它记住了什么</span>
+  </div>
 </div>
 
 <div class="box">
@@ -74,7 +102,177 @@
   </div>
 </div>
 
+<div class="overlay" id="memOverlay" style="display:none;">
+  <div class="overlay-head">
+    <span>🧠 记忆库</span>
+    <button id="btnMemClose" class="ghost" style="padding:6px 14px;font-size:16px;">关闭</button>
+  </div>
+  <div class="mem-tabs">
+    <button class="mem-tab active" data-tab="persona">画像</button>
+    <button class="mem-tab" data-tab="scenes">场景</button>
+    <button class="mem-tab" data-tab="atoms">记忆</button>
+    <button class="mem-tab" data-tab="raw">原话</button>
+  </div>
+  <div class="mem-body" id="memBody"></div>
+  <div class="mem-status" id="memStatus"></div>
+</div>
+
 <script>
+/* ===== 记忆库：连本机记忆引擎（腾讯 MemoryCore，端口 8420） ===== */
+var MEM_BASE = "http://127.0.0.1:8420";
+var MEM_HEADERS = {
+  "Content-Type": "application/json",
+  "Authorization": "Bearer local",
+  "x-tdai-service-id": "default"
+};
+// 身份隔离字段走请求体（浏览器跨域只放行上面三个头，塞进 body 就不用改服务端）
+var MEM_ID = {
+  "team_id": "team-okffq0no3b",
+  "agent_id": "agt-okf6hzu2e1",
+  "user_id": "usr-okd8giefxa"
+};
+var memTab = "persona";
+var memScenePath = null;
+var memAtomType = "";
+
+function memStatus(t) { document.getElementById("memStatus").textContent = t || ""; }
+function memBody() { return document.getElementById("memBody"); }
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function memApi(path, body) {
+  var payload = {};
+  for (var k in MEM_ID) payload[k] = MEM_ID[k];
+  for (var k2 in (body || {})) payload[k2] = body[k2];
+  return fetch(MEM_BASE + path, {
+    method: "POST",
+    headers: MEM_HEADERS,
+    body: JSON.stringify(payload)
+  }).then(function (r) {
+    if (!r.ok) throw new Error("记忆服务返回 " + r.status);
+    return r.json();
+  }).then(function (j) {
+    if (j.code !== 0) throw new Error(j.message || "出错");
+    return j.data;
+  });
+}
+function fmtTime(iso) {
+  if (!iso) return "";
+  return String(iso).replace("T", " ").slice(0, 16);
+}
+function typeName(t) {
+  return { persona: "画像", episodic: "事件", instruction: "指令" }[t] || t || "记忆";
+}
+
+function memReload() {
+  var b = memBody();
+  b.innerHTML = "";
+  if (memTab === "persona") return loadPersona();
+  if (memTab === "scenes") return memScenePath ? loadSceneOne(memScenePath) : loadScenes();
+  if (memTab === "atoms") return loadAtoms();
+  return loadRaw();
+}
+
+function loadPersona() {
+  memStatus("读取画像…");
+  memApi("/v3/core/read", {}).then(function (d) {
+    memStatus("更新时间：" + fmtTime(d.updated_at));
+    memBody().innerHTML = d.content
+      ? '<div class="card">' + esc(d.content) + "</div>"
+      : '<div class="mem-hint">还没有画像。多聊一阵，等它攒够记忆会自动生成。</div>';
+  }).catch(function (e) { memStatus("读不到画像：" + e.message); });
+}
+
+function loadScenes() {
+  memStatus("读取场景…");
+  memApi("/v3/scenario/ls", {}).then(function (d) {
+    if (!d.entries || !d.entries.length) {
+      memStatus("");
+      memBody().innerHTML = '<div class="mem-hint">还没有场景。它会把零散的事攒成"事情块"。</div>';
+      return;
+    }
+    memStatus("共 " + d.total + " 个场景，点开看内容");
+    memBody().innerHTML = d.entries.map(function (e) {
+      return '<div class="card tap" data-path="' + esc(e.path) + '">' +
+        "📄 " + esc(e.path) +
+        '<div class="mem-meta">' + fmtTime(e.updated_at) + "</div></div>";
+    }).join("");
+    memBody().querySelectorAll(".card.tap").forEach(function (c) {
+      c.onclick = function () { memScenePath = c.getAttribute("data-path"); memReload(); };
+    });
+  }).catch(function (e) { memStatus("读不到场景：" + e.message); });
+}
+
+function loadSceneOne(path) {
+  memStatus("读取 " + path + "…");
+  memApi("/v3/scenario/read", { path: path }).then(function (d) {
+    memStatus("");
+    memBody().innerHTML =
+      '<div class="card" style="background:#eee;cursor:pointer;" id="memBack">← 返回场景列表</div>' +
+      '<div class="card">' + esc(d.content || "（空）") + "</div>";
+    document.getElementById("memBack").onclick = function () { memScenePath = null; memReload(); };
+  }).catch(function (e) { memStatus("读不到：" + e.message); });
+}
+
+function loadAtoms() {
+  memStatus("读取记忆…");
+  var body = { limit: 50, offset: 0 };
+  if (memAtomType) body.type = memAtomType;
+  memApi("/v3/atomic/query", body).then(function (d) {
+    memStatus("共 " + d.total + " 条");
+    var filter = '<div class="mem-filter">' +
+      ["", "persona", "episodic", "instruction"].map(function (t) {
+        return '<button data-t="' + t + '"' + (memAtomType === t ? ' class="on"' : "") + ">" +
+          (t ? typeName(t) : "全部") + "</button>";
+      }).join("") + "</div>";
+    var list = (d.items || []).map(function (it) {
+      return '<div class="card"><span class="badge ' + esc(it.type) + '">' + esc(typeName(it.type)) + "</span>" +
+        esc(it.content) +
+        '<div class="mem-meta">' + fmtTime(it.updated_at) + "</div></div>";
+    }).join("");
+    memBody().innerHTML = filter + (list || '<div class="mem-hint">还没有记忆。</div>');
+    memBody().querySelectorAll(".mem-filter button").forEach(function (b) {
+      b.onclick = function () { memAtomType = b.getAttribute("data-t"); loadAtoms(); };
+    });
+  }).catch(function (e) { memStatus("读不到记忆：" + e.message); });
+}
+
+function loadRaw() {
+  memStatus("读取原话…");
+  memApi("/v3/conversation/query", { limit: 30, offset: 0 }).then(function (d) {
+    memStatus("共 " + d.total + " 条");
+    var list = (d.messages || []).map(function (m) {
+      var who = m.role === "user" ? "我" : "它";
+      return '<div class="card"><span class="badge">' + who + "</span>" + esc(m.content) +
+        '<div class="mem-meta">' + fmtTime(m.recorded_at) + "</div></div>";
+    }).join("");
+    memBody().innerHTML = list || '<div class="mem-hint">还没有记录。</div>';
+  }).catch(function (e) { memStatus("读不到原话：" + e.message); });
+}
+
+document.getElementById("btnMem").onclick = function () {
+  document.getElementById("memOverlay").style.display = "flex";
+  memTab = "persona"; memScenePath = null; memAtomType = "";
+  document.querySelectorAll(".mem-tab").forEach(function (t) {
+    t.classList.toggle("active", t.getAttribute("data-tab") === "persona");
+  });
+  memReload();
+};
+document.getElementById("btnMemClose").onclick = function () {
+  document.getElementById("memOverlay").style.display = "none";
+};
+document.querySelectorAll(".mem-tab").forEach(function (t) {
+  t.onclick = function () {
+    memTab = t.getAttribute("data-tab");
+    memScenePath = null;
+    document.querySelectorAll(".mem-tab").forEach(function (x) { x.classList.remove("active"); });
+    t.classList.add("active");
+    memReload();
+  };
+});
+
 var DIR = "/data/data/com.termux/files/home/.cache/opencode/tmp/da-web/chat";
 var sessionId = null;
 var polling = false;

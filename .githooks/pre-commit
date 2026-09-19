@@ -1,0 +1,49 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# daily-assistant 提交前检查
+#
+# 启用（克隆后跑一次）：
+#   git config core.hooksPath .githooks
+#
+# 作用：
+#   ① 禁止把"决策/迭代/规范"类文档提交进公开仓库（只留本地）；
+#   ② 拦截敏感文件（凭据/沙箱/数据库/实盘记忆）；
+#   ③ 扫描暂存内容里的密钥特征。
+#
+# 规则来源：AGENTS.md 铁律五 + §5；2026-09-19 用户拍板"只提交脱敏后的原文件"。
+set -uo pipefail
+
+FORBIDDEN_REGEX='(^|/)AGENTS\.md$|(^|/)HANDOFF\.md$|(^|/)优化清单\.md$|(^|/)研究报告\.md$|(^|/)设计定案\.md$'
+SENSITIVE_REGEX='(^|/)(auth\.json|.*\.key|.*\.keystore|.*\.pem|\.env|\.env\..*)$|(^|/)workspace/|(^|/)memory/(USER|MEMORY|dreams)\.md$|\.db(-shm|-wal)?$'
+# 私钥头拆成变量，避免本文件自身命中后续密钥扫描。
+PKHDR="-----BEGIN"
+SECRET_REGEX="sk-[a-z0-9]{10}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9_]{20}|${PKHDR}.*PRIVATE"
+
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+  staged="$(git diff --cached --name-only --diff-filter=ACM)"
+else
+  staged="$(git ls-files --cached)"
+fi
+
+bad_forbidden="$(printf '%s\n' "$staged" | grep -E "$FORBIDDEN_REGEX" || true)"
+if [ -n "$bad_forbidden" ]; then
+  echo "❌ 禁止提交（决策/迭代/规范类文档，只留本地、不进公开仓库）："
+  printf '%s\n' "$bad_forbidden" | sed 's/^/    /'
+  echo "  处理：git restore --staged <文件>"
+  exit 1
+fi
+
+bad_sensitive="$(printf '%s\n' "$staged" | grep -E "$SENSITIVE_REGEX" || true)"
+if [ -n "$bad_sensitive" ]; then
+  echo "❌ 禁止提交（敏感文件：凭据/沙箱/数据库/实盘记忆）："
+  printf '%s\n' "$bad_sensitive" | sed 's/^/    /'
+  echo "  处理：git restore --staged <文件>"
+  exit 1
+fi
+
+if git diff --cached -U0 2>/dev/null | grep -E '^\+' | grep -Eiq "$SECRET_REGEX"; then
+  echo "❌ 暂存内容里疑似有密钥/私钥，已拦下。"
+  exit 1
+fi
+
+echo "✅ 提交前检查通过"
+exit 0
